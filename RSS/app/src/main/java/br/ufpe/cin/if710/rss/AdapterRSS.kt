@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.support.v7.widget.RecyclerView
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -35,6 +36,7 @@ class AdapterRSS (private val listRSS: List<ItemRSS>, private val context: Conte
             // utilizado para abrir o RSS no navegador
             val i = Intent(Intent.ACTION_VIEW, Uri.parse(rss.link))
             context.startActivity(i)
+            Log.i("prepi mark read", SQLiteRSSHelper.getInstance(context).markAsRead(rss.link).toString())
         }
     }
 }

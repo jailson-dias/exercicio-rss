@@ -1,10 +1,34 @@
 package br.ufpe.cin.if710.rss
 
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.SharedPreferences
+import android.graphics.Color
+import android.graphics.PorterDuff
+import android.graphics.drawable.Drawable
+import android.os.Build
 import android.os.Bundle
+import android.support.v4.app.NotificationCompat
+import android.support.v4.app.NotificationManagerCompat
+import android.support.v7.app.AppCompatActivity
+import android.support.v7.app.AppCompatCallback
+import android.support.v7.app.AppCompatDelegate
+import android.support.v7.view.ActionMode
+import android.support.v7.view.menu.MenuBuilder
 import android.support.v7.widget.LinearLayoutManager
+import android.support.v7.widget.RecyclerView
+import android.support.v7.widget.Toolbar
+import android.util.Log
+import android.view.Menu
+import android.view.MenuItem
+import android.webkit.WebView
 import android.widget.TextView
+import android.widget.Toast
 import kotlinx.android.synthetic.main.activity_main.*
 import org.jetbrains.anko.doAsync
 import org.jetbrains.anko.uiThread
@@ -15,41 +39,89 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
-class MainActivity: Activity() {
+class MainActivity: AppCompatActivity(), AppCompatCallback {
 
-    //ao fazer envio da resolucao, use este link no seu codigo!
-//    private val RSS_FEED = "http://leopoldomt.com/if1001/g1brasil.xml"
-
-    //OUTROS LINKS PARA TESTAR...
-    // esses outros links não funcionam com o adapter
-//    private val RSS_FEED = "http://rss.cnn.com/rss/edition.rss"
-//    private val RSS_FEED = "http://pox.globo.com/rss/g1/brasil/"
-//    private val RSS_FEED = "http://pox.globo.com/rss/g1/ciencia-e-saude/"
-//    private val RSS_FEED = "http://pox.globo.com/rss/g1/tecnologia/"
-
-    //use ListView ao invés de TextView - deixe o atributo com o mesmo nome
-//    private var conteudoRSS: TextView? = null
+    val receiver = ForegroundReceiver()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // colocando a toolbar no app
+        setSupportActionBar(toolbar)
+
+        // registrando o broadcast para ser chamando quando o app estiver em primeiro plano
+        registerReceiver(receiver, IntentFilter(FOREGROUND))
+//        registerReceiver(BackgroundReceiver(), IntentFilter(DownloadService.DOWNLOAD_AND_SAVE_COMPLETED))
+
         conteudoRSS.apply {
             // colocando para o recycle view utilizar o layout do linearlayoutmanager
             layoutManager = LinearLayoutManager(applicationContext)
+        }
 
+    }
+
+    // criando o menu com a opção de settings
+    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
+        menuInflater.inflate(R.menu.menu, menu)
+        return true
+    }
+
+    // colocando a ação de ir para a tela de configuração quando clicar em settings
+    override fun onOptionsItemSelected(item: MenuItem?): Boolean {
+        when (item?.getItemId()) {
+            R.id.btn_Config -> {
+                val i = Intent(this, PreferenciasActivity::class.java)
+                startActivity(i)
+                return true
+            }
+            else ->
+                return super.onOptionsItemSelected(item)
         }
     }
+
 
     override fun onStart() {
         super.onStart()
         // pegando a url que está no arquivo strings.xml e depois requisitando-a com getRssFeed
-        getRssFeed(getString(R.string.rssfeed))
+//        var rssfeed = getSharedPreferences("rssFeed", Context.MODE_PRIVATE)
 
+        sendBroadcast(Intent(FOREGROUND))
+        getRssFromDB()
+    }
+
+    private fun getRssFromDB() {
+        // lê as noticias do banco local
+        doAsync {
+            val db = SQLiteRSSHelper.getInstance(applicationContext)
+            val listRSS = db.getAllItemRSS()
+            uiThread {
+                Log.i("prepi rss", listRSS.size.toString())
+                conteudoRSS.adapter = AdapterRSS(listRSS, applicationContext) // criando o adapter para exibir a lista de rss
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+
+        // verifica se tem novas noticias ao sair
+        val sharedPreferences = getSharedPreferences("rssfeed", Context.MODE_PRIVATE)
+        val url = sharedPreferences!!.getString("rssFeed", "")
+
+        if (url!!.endsWith(".xml", true)) {
+
+            // solicitando o service para baixar os dados do xml e salvar no DB
+            val i = Intent(applicationContext, DownloadService::class.java)
+            i.putExtra("feed", url)
+            startService(i)
+        } else {
+            Log.i("prepi", "A URL informada não é um xml válido")
+        }
     }
 
     //Opcional - pesquise outros meios de obter arquivos da internet - bibliotecas, etc.
-    private fun getRssFeed(feed: String) {
+    private fun getRssFeed(feed: String?) {
 
         // utilizado para fazer a requisição do RSS, pois não pode ser feito na thread principal
         doAsync {
@@ -76,5 +148,14 @@ class MainActivity: Activity() {
                 `in`?.close()
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(receiver)
+    }
+
+    companion object {
+        val FOREGROUND = "br.ufpe.cin.if710.rss.FOREGROUND"
     }
 }
